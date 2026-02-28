@@ -1,0 +1,48 @@
+{
+  "code-review": {
+    "name": "code-review",
+    "description": "Use this skill when asked to review, audit, or improve code in any language.",
+    "enabled": true,
+    "tier": "built-in",
+    "version": "1.0.0",
+    "installedAt": "2026-02-28T06:49:00.793Z",
+    "usageCount": 0
+  },
+  "data-analysis": {
+    "name": "data-analysis",
+    "description": "Use this skill when analyzing CSV, JSON, spreadsheets, API responses, or any structured data.",
+    "enabled": true,
+    "tier": "built-in",
+    "version": "1.0.0",
+    "installedAt": "2026-02-28T06:49:00.793Z",
+    "usageCount": 0
+  },
+  "email-drafting": {
+    "name": "email-drafting",
+    "description": "Use this skill when asked to write, draft, improve, or reply to emails.",
+    "enabled": true,
+    "tier": "built-in",
+    "version": "1.0.0",
+    "installedAt": "2026-02-28T06:49:00.794Z",
+    "usageCount": 1,
+    "lastUsedAt": "2026-02-28T07:08:30.671Z"
+  },
+  "task-planning": {
+    "name": "task-planning",
+    "description": "Use this skill when breaking down complex goals into executable tasks, building project plans, or decomposing a large as",
+    "enabled": true,
+    "tier": "built-in",
+    "version": "1.0.0",
+    "installedAt": "2026-02-28T06:49:00.795Z",
+    "usageCount": 0
+  },
+  "web-research": {
+    "name": "web-research",
+    "description": "Use this skill when asked to research a topic, verify facts, investigate competitors, or find information online.",
+    "enabled": true,
+    "tier": "built-in",
+    "version": "1.0.0",
+    "installedAt": "2026-02-28T06:49:00.795Z",
+    "usageCount": 0
+  }
+}

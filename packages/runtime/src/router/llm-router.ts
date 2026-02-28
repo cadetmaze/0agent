@@ -103,19 +103,29 @@ export class LLMRouter {
      * Select the best provider for a classified task.
      */
     selectProvider(task: ClassifiedTask): LLMProvider {
+        console.log(`[LLMRouter] Selecting provider for classification: ${task.classification}`);
+        console.log(`[LLMRouter] Available routing rules: ${JSON.stringify(this.routingRules)}`);
+
         // Check routing rules first
         for (const rule of this.routingRules) {
             if (rule.classification === task.classification) {
                 const provider = this.providers.get(rule.preferredProviderId);
+                console.log(`[LLMRouter] Checking rule-preferred provider: ${rule.preferredProviderId} (found: ${!!provider})`);
                 if (provider && provider.canHandle(task)) {
+                    console.log(`[LLMRouter] Rule-preferred provider ${provider.id} says it can handle the task.`);
                     return provider;
+                } else {
+                    console.log(`[LLMRouter] Rule-preferred provider ${rule.preferredProviderId} either not found or says it CANNOT handle the task.`);
                 }
             }
         }
 
+        console.log(`[LLMRouter] No matching routing rule found with a capable provider. Falling back to first capable provider.`);
+
         // Fallback: find first provider that can handle the task
         for (const provider of this.providers.values()) {
             if (provider.canHandle(task)) {
+                console.log(`[LLMRouter] Fallback provider ${provider.id} says it can handle the task.`);
                 return provider;
             }
         }

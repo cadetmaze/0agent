@@ -104,7 +104,8 @@ export class Orchestrator {
         this.skillLoader = skillLoader ?? null;
         this.redis = redis;
 
-        this.queue = new Queue('tasks', { connection: redis });
+        // Cast to any: BullMQ bundles its own ioredis types that differ from standalone ioredis
+        this.queue = new Queue('tasks', { connection: redis as any });
         this.dag = { nodes: new Map(), rootNodes: [] };
     }
 
@@ -191,18 +192,22 @@ export class Orchestrator {
             node.status = 'in_progress';
             scheduled.push(taskId);
 
-            // Record in database
-            await this.supabase.from('tasks').insert({
-                id: taskId,
-                company_id: companyId,
-                agent_id: agentId,
-                spec: node.task,
-                status: 'in_progress',
-                estimated_cost_tokens: node.task.estimatedCostTokens,
-                estimated_cost_dollars: node.task.estimatedCostDollars,
-                dependencies: node.dependencies,
-                outcome_pointer: node.task.outcomePointer,
-            });
+            // Record in database (non-fatal — works even without seeded company/agent rows)
+            try {
+                await this.supabase.from('tasks').insert({
+                    id: taskId,
+                    company_id: companyId,
+                    agent_id: agentId,
+                    spec: node.task,
+                    status: 'in_progress',
+                    estimated_cost_tokens: node.task.estimatedCostTokens,
+                    estimated_cost_dollars: node.task.estimatedCostDollars,
+                    dependencies: node.dependencies,
+                    outcome_pointer: node.task.outcomePointer,
+                });
+            } catch (dbErr) {
+                console.warn(`[Orchestrator] Tasks insert failed (non-fatal): ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
+            }
         }
 
         console.log(
@@ -225,7 +230,7 @@ export class Orchestrator {
             async (job: Job<TaskJobData>) => {
                 await this.processTask(job.data, agentId, companyId);
             },
-            { connection: redis, concurrency: 1 }
+            { connection: redis as any, concurrency: 1 }
         );
 
         this.worker.on('completed', (job: Job) => {
@@ -502,20 +507,30 @@ export class Orchestrator {
                 confidenceScore: lensedResult.confidenceScore,
             });
 
+            // Stream the actual LLM output text to the CLI
+            await this.emitEvent(taskId, {
+                type: 'stream',
+                chunk: lensedResult.output,
+            });
+
             await this.emitEvent(taskId, {
                 type: 'done',
                 cost: lensedResult.confidenceScore, // TODO: map actual cost
                 tokens: lensedResult.output.length  // TODO: map actual tokens
             });
 
-            // Update task in database
-            await this.supabase
-                .from('tasks')
-                .update({
-                    status: 'completed',
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', taskId);
+            // Update task in database (non-fatal)
+            try {
+                await this.supabase
+                    .from('tasks')
+                    .update({
+                        status: 'completed',
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', taskId);
+            } catch (dbErr) {
+                console.warn(`[Orchestrator] Task update failed (non-fatal): ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`);
+            }
 
             // --- Post-task hooks: Decision Log + Active Context ---
 
@@ -577,14 +592,18 @@ export class Orchestrator {
             // Clean up circuit breaker state
             this.circuitBreaker.taskCompleted(taskId);
 
-            // Update task status in database
-            await this.supabase
-                .from('tasks')
-                .update({
-                    status: 'failed',
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', taskId);
+            // Update task status in database (non-fatal)
+            try {
+                await this.supabase
+                    .from('tasks')
+                    .update({
+                        status: 'failed',
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', taskId);
+            } catch (dbUpdateErr) {
+                console.warn(`[Orchestrator] Task failure update failed (non-fatal): ${dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr)}`);
+            }
 
             throw error;
         }

@@ -48,6 +48,44 @@ Once an expert's judgment is encoded, every task the agent handles — regardles
 4. [Chapter 3 — Thinking](#chapter-3--thinking)
 5. [Chapter 4 — The LLM Router](#chapter-4--the-llm-router)
 6. [Chapter 5 — Execution](#chapter-5--execution)
+
+---
+
+## ⚡ Quick Start
+
+The fastest way to get your first agent live is using the onboarding wizard.
+
+1.  **Clone & Install**
+    ```bash
+    git clone https://github.com/onlyreason/0agent
+    cd 0agent
+    ```
+
+2.  **Start the Wizard**
+    ```bash
+    ./start.sh
+    ```
+    The wizard will check your prerequisites (Node 20+, Docker), install dependencies, and guide you through choosing an LLM provider and setting up your Telegram bot.
+
+---
+
+## 🛢️ Database Setup (Persistent Memory)
+
+By default, the agent runs with **ephemeral memory** (lost on restart) if you leave the Supabase URL blank during setup. To enable persistent memory:
+
+### 1. Initialize Supabase
+1. Create a project at [supabase.com](https://supabase.com).
+2. Open the **SQL Editor**.
+3. Paste and run the contents of [backend_setup.sql](./backend_setup.sql). This creates the necessary tables, indices, and triggers for the 0agent judgment runtime.
+
+### 2. Connect Your Agent
+Run `./start.sh` again and provide:
+- **Supabase URL**: `https://your-project.supabase.co`
+- **Service Role Key**: Your secret key from `Settings -> API`.
+
+---
+
+## 🏗️ Architecture Overview
 7. [Chapter 6 — Coordination](#chapter-6--coordination)
 8. [Chapter 7 — Measurement](#chapter-7--measurement)
 9. [Memory Architecture](#memory-architecture)

@@ -37,6 +37,17 @@ async function main(): Promise<void> {
 
     // Boot the agent
     await agent.boot();
+
+    // Start Telegram listener if enabled
+    if (process.env['FEATURE_TELEGRAM'] === 'true' && process.env['TELEGRAM_BOT_TOKEN']) {
+        const { TelegramListener } = await import('./adapters/telegram-listener.js');
+        const listener = new TelegramListener(
+            process.env['TELEGRAM_BOT_TOKEN'],
+            process.env['TELEGRAM_USER_ID'] || null
+        );
+        console.log('[Runtime] Starting Telegram listener...');
+        void listener.start();
+    }
 }
 
 main().catch((error) => {

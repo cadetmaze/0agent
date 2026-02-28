@@ -109,12 +109,14 @@ export class AdapterRegistry {
         const { SlackAdapter } = await import('./slack.js');
         const { CalendarAdapter } = await import('./calendar.js');
         const { SandboxAdapter } = await import('./sandbox.js');
+        const { TelegramAdapter } = await import('./telegram.js');
 
         this.register(new BrowserAdapter());
         this.register(new GmailAdapter());
         this.register(new SlackAdapter());
         this.register(new CalendarAdapter());
         this.register(new SandboxAdapter());
+        this.register(new TelegramAdapter());
     }
 
     // ============================================================

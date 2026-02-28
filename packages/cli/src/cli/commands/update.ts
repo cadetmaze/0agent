@@ -12,7 +12,7 @@ import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const { version: currentVersion } = JSON.parse(
-    readFileSync(join(__dirname, '../../../../package.json'), 'utf8')
+    readFileSync(join(__dirname, '../../../package.json'), 'utf8')
 ) as { version: string };
 
 export const updateCommand = new Command('update')

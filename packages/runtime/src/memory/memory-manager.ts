@@ -15,7 +15,7 @@
 import type { OrgContext, EpisodicEvent, OptimizationMode } from '../core/envelope.js';
 import { WorkingMemory } from './working.js';
 import { EpisodicMemory } from './episodic.js';
-import { OrgGraph } from './org-graph.js';
+import { OrgGraph, type CompanyContext } from './org-graph.js';
 import { DecisionLog } from './decision-log.js';
 import { ActiveContextStore } from './active-context.js';
 import { KGStore } from './kg-store.js';
@@ -90,24 +90,49 @@ export class MemoryManager {
         taskSpec: string
     ): Promise<OrgContext> {
         // --- Tier 1: Always-on org data (goal, constraints) ---
-        const orgData = await this.orgGraph.getCompanyContext(companyId);
+        let orgData = this.emptyContext();
+        try {
+            orgData = await this.orgGraph.getCompanyContext(companyId);
+        } catch (err) {
+            console.warn(`[MemoryManager] OrgGraph fetch failed (local mode): ${(err as Error).message}`);
+        }
 
         // --- Tier 2: Blink State (compact focus block) ---
-        const blinkState = await this.blink.getLatestState(agentId, companyId);
+        let blinkState = null;
+        try {
+            blinkState = await this.blink.getLatestState(agentId, companyId);
+        } catch (err) {
+            // Non-fatal
+        }
 
         // --- Tier 3: KG semantic retrieval for task-relevant nodes ---
-        const kgNodes = await this.kg.search(taskSpec, companyId, {
-            limit: 8,
-            types: ['decision', 'insight', 'procedure', 'episode'],
-            scope: ['agent', 'org'],
-            minImportance: 0.3,
-        });
+        let kgNodes: any[] = [];
+        try {
+            kgNodes = await this.kg.search(taskSpec, companyId, {
+                limit: 8,
+                types: ['decision', 'insight', 'procedure', 'episode'],
+                scope: ['agent', 'org'],
+                minImportance: 0.3,
+            });
+        } catch (err) {
+            // Non-fatal, return empty kgNodes
+        }
 
         // --- Tier 4: Recent decisions (capped) ---
-        const recentDecisions = await this.decisionLog.getRecent(companyId, 5);
+        let recentDecisions: any[] = [];
+        try {
+            recentDecisions = await this.decisionLog.getRecent(companyId, 5);
+        } catch (err) {
+            // Non-fatal
+        }
 
         // --- Tier 5: Active context ---
-        const activeCtx = await this.activeContext.load(companyId);
+        let activeCtx = { priorities: [], openQuestions: [], activeExperiments: [], inFlightTasks: [] };
+        try {
+            activeCtx = await this.activeContext.load(companyId) as any;
+        } catch (err) {
+            // Non-fatal
+        }
 
         // Convert KG nodes to Decision format for OrgContext
         const kgDecisions = kgNodes.map((node) => ({
@@ -198,5 +223,15 @@ export class MemoryManager {
         sentiment: number
     ): Promise<void> {
         await this.episodic.record(agentId, sessionId, summary, outcome, sentiment);
+    }
+
+    private emptyContext(): CompanyContext {
+        return {
+            goal: '',
+            activeDecisions: [],
+            keyPeople: [],
+            budgetRemaining: 0,
+            constraints: [],
+        };
     }
 }

@@ -37,11 +37,14 @@ export class AnthropicProvider implements LLMProvider {
     }
 
     canHandle(task: ClassifiedTask): boolean {
-        // Claude handles judgment-heavy and standard tasks well.
-        // Not suitable for sensitive tasks (use local model instead).
+        const hasKey = !!(process.env['ANTHROPIC_API_KEY']);
+        if (!hasKey) return false;
+
+        // Claude handles judgment-heavy, standard, and fast tasks well.
         return (
             task.classification === 'judgment_heavy' ||
-            task.classification === 'standard'
+            task.classification === 'standard' ||
+            task.classification === 'fast'
         );
     }
 

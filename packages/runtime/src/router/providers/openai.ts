@@ -37,8 +37,10 @@ export class OpenAIProvider implements LLMProvider {
     }
 
     canHandle(task: ClassifiedTask): boolean {
+        const hasKey = !!(process.env['OPENAI_API_KEY']);
+        if (!hasKey) return false;
+
         // OpenAI handles standard and fast tasks.
-        // Not for sensitive (use local) or judgment-heavy (use Claude).
         return (
             task.classification === 'standard' ||
             task.classification === 'fast'

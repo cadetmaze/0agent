@@ -19,9 +19,10 @@ import { logsCommand } from './commands/logs.js';
 import { memoryCommand } from './commands/memory.js';
 import { updateCommand } from './commands/update.js';
 import { configCommand } from './commands/config.js';
+import { telegramCommand } from './commands/telegram.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(join(__dirname, '../../../package.json'), 'utf8')) as { version: string };
+const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf8')) as { version: string };
 
 const program = new Command();
 
@@ -40,6 +41,7 @@ program.addCommand(logsCommand);
 program.addCommand(memoryCommand);
 program.addCommand(updateCommand);
 program.addCommand(configCommand);
+program.addCommand(telegramCommand);
 
 // Show help if no command given
 program.action(() => {

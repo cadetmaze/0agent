@@ -90,8 +90,13 @@ export class Agent {
             // Step 2: Connect to Supabase
             this.logStep(2, 'Connecting to Supabase');
             this.supabase = createClient(env.SUPABASE_URL!, env.SUPABASE_SERVICE_KEY!);
-            await this.verifySupabaseConnection();
-            this.logStep(2, 'Supabase connected ✓');
+            try {
+                await this.verifySupabaseConnection();
+                this.logStep(2, 'Supabase connected ✓');
+            } catch (err) {
+                this.logStep(2, `Supabase connection unavailable (local mode): ${(err as Error).message}`);
+                console.warn('[Agent] Operating in local mode without Supabase.');
+            }
 
             // Step 3: Load Core Memory + Active Context + Verify Seat
             this.logStep(3, 'Loading Core Memory');
@@ -101,8 +106,12 @@ export class Agent {
             // Step 3b: Load Active Context (company-scoped, persistent)
             this.logStep(3, 'Loading Active Context');
             this.memoryManager = new MemoryManager(this.supabase);
-            const activeCtx = await this.memoryManager.activeContext.load(this.companyId);
-            this.logStep(3, `Active Context loaded ✓ (${activeCtx.priorities.length} priorities, ${activeCtx.inFlightTasks.length} in-flight)`);
+            try {
+                const activeCtx = await this.memoryManager.activeContext.load(this.companyId);
+                this.logStep(3, `Active Context loaded ✓ (${activeCtx.priorities.length} priorities, ${activeCtx.inFlightTasks.length} in-flight)`);
+            } catch (err) {
+                this.logStep(3, `Active Context unavailable: ${(err as Error).message}`);
+            }
 
             // Step 3c: Verify seat assignment
             this.logStep(3, 'Verifying seat assignment');
@@ -135,9 +144,14 @@ export class Agent {
             // Step 6: Initialize Key Proxy
             this.logStep(6, 'Initializing Key Proxy');
             this.keyProxy = new KeyProxy(env.CREDENTIAL_ENCRYPTION_KEY!);
-            const credentials = await this.loadCredentials();
+            let credentials: any[] = [];
+            try {
+                credentials = await this.loadCredentials();
+            } catch (err) {
+                this.logStep(6, `Key Proxy credentials load failed (local mode): ${(err as Error).message}`);
+            }
             await this.keyProxy.initialize(credentials);
-            this.logStep(6, 'Key Proxy initialized ✓');
+            this.logStep(6, `Key Proxy initialized ✓ (${credentials.length} credentials loaded)`);
 
             // Step 7: Initialize adapter registry
             this.logStep(7, 'Initializing adapter registry');
@@ -165,8 +179,8 @@ export class Agent {
             // Step 7b: Initialize Skill components
             this.logStep(7, 'Initializing skill components');
             const skillsRoot = env.SKILLS_ROOT ?? join(process.cwd(), 'skills');
-            this.skillRegistry = new SkillRegistry(skillsRoot, this.supabase);
-            await this.skillRegistry.discover();
+            this.skillRegistry = new SkillRegistry(skillsRoot);
+            await this.skillRegistry.init();
             this.skillLoader = new SkillLoader(this.skillRegistry);
             this.logStep(7, 'Skill components initialized ✓');
 
@@ -175,17 +189,22 @@ export class Agent {
             this.router.registerProvider(new AnthropicProvider());
             this.router.registerProvider(new OpenAIProvider());
             this.router.registerProvider(new LocalProvider());
+            const hasAnthropic = !!process.env['ANTHROPIC_API_KEY'];
+            const hasOpenAI = !!process.env['OPENAI_API_KEY'];
+            console.log(`[Agent] LLM Key Check: Anthropic=${hasAnthropic} ("${process.env['ANTHROPIC_API_KEY']?.slice(0, 5)}..."), OpenAI=${hasOpenAI} ("${process.env['OPENAI_API_KEY']?.slice(0, 5)}...")`);
+
+            // Route standard tasks to preferred provider if available
             this.router.addRoutingRule({
                 classification: 'judgment_heavy',
-                preferredProviderId: 'anthropic',
+                preferredProviderId: hasAnthropic ? 'anthropic' : (hasOpenAI ? 'openai' : 'local'),
             });
             this.router.addRoutingRule({
                 classification: 'standard',
-                preferredProviderId: 'openai',
+                preferredProviderId: hasOpenAI ? 'openai' : (hasAnthropic ? 'anthropic' : 'local'),
             });
             this.router.addRoutingRule({
                 classification: 'fast',
-                preferredProviderId: 'openai',
+                preferredProviderId: hasOpenAI ? 'openai' : (hasAnthropic ? 'anthropic' : 'local'),
             });
             this.router.addRoutingRule({
                 classification: 'sensitive',
@@ -297,38 +316,48 @@ export class Agent {
         escalationTriggers: Trigger[];
         confidenceMap: ConfidenceRange[];
     }> {
-        const { data, error } = await this.supabase
-            .from('core_memory')
-            .select('*')
-            .eq('agent_id', this.agentId)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
+        try {
+            const { data, error } = await this.supabase
+                .from('core_memory')
+                .select('*')
+                .eq('agent_id', this.agentId)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .single();
 
-        if (error || !data) {
-            // For scaffold: return empty defaults if no core memory exists
-            console.warn(
-                '[Agent] No core memory found — running with empty constraints. ' +
-                'Train the agent through the judgment service to populate core memory.'
-            );
+            if (error || !data) {
+                // For scaffold: return empty defaults if no core memory exists
+                console.warn(
+                    '[Agent] No core memory found — running with empty constraints. ' +
+                    'Train the agent through the judgment service to populate core memory.'
+                );
+                return {
+                    trainingVersion: 'untrained',
+                    hardConstraints: [],
+                    escalationTriggers: [],
+                    confidenceMap: [
+                        { min: 0.0, max: 0.3, action: 'escalate', description: 'Low confidence — escalate' },
+                        { min: 0.3, max: 0.6, action: 'slow_down', description: 'Medium confidence — proceed with caution' },
+                        { min: 0.6, max: 1.0, action: 'act', description: 'High confidence — act autonomously' },
+                    ],
+                };
+            }
+
+            return {
+                trainingVersion: data.training_version as string,
+                hardConstraints: (data.hard_constraints as Constraint[]) ?? [],
+                escalationTriggers: (data.escalation_triggers as Trigger[]) ?? [],
+                confidenceMap: (data.confidence_map as ConfidenceRange[]) ?? [],
+            };
+        } catch (err) {
+            console.warn(`[Agent] Could not load core memory: ${(err as Error).message}`);
             return {
                 trainingVersion: 'untrained',
                 hardConstraints: [],
                 escalationTriggers: [],
-                confidenceMap: [
-                    { min: 0.0, max: 0.3, action: 'escalate', description: 'Low confidence — escalate' },
-                    { min: 0.3, max: 0.6, action: 'slow_down', description: 'Medium confidence — proceed with caution' },
-                    { min: 0.6, max: 1.0, action: 'act', description: 'High confidence — act autonomously' },
-                ],
+                confidenceMap: [],
             };
         }
-
-        return {
-            trainingVersion: data.training_version as string,
-            hardConstraints: (data.hard_constraints as Constraint[]) ?? [],
-            escalationTriggers: (data.escalation_triggers as Trigger[]) ?? [],
-            confidenceMap: (data.confidence_map as ConfidenceRange[]) ?? [],
-        };
     }
 
     private async verifyJudgmentService(serviceToken: string): Promise<void> {

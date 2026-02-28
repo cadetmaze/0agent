@@ -176,7 +176,12 @@ export class Logger {
         const { error } = await this.supabase.from('telemetry_events').insert(rows);
 
         if (error) {
-            console.error(`[Logger] Failed to flush ${rows.length} events: ${error.message}`);
+            // Silence "fetch failed" in logs — it's expected in local mode and very noisy
+            if (error.message.includes('fetch failed')) {
+                // Don't log anything to console
+            } else {
+                console.error(`[Logger] Failed to flush ${rows.length} events: ${error.message}`);
+            }
             // Put events back in the buffer for retry
             this.buffer.unshift(...events);
         }
