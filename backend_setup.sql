@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS core_memory (
     locked_at           timestamptz
 );
 
--- Episodic Memory — Past session records.
+-- Episodic Memory — Past session records (Legacy/Non-vector).
+-- Note: Modern episodic retrieval uses semantic_memory.
 CREATE TABLE IF NOT EXISTS episodic_memory (
     id          uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     agent_id    uuid NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
@@ -98,6 +99,22 @@ CREATE TABLE IF NOT EXISTS episodic_memory (
     sentiment   float DEFAULT 0.0,
     created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- Semantic Memory — Vector embeddings for similarity search (Transcripts, corrections, etc.)
+CREATE TABLE IF NOT EXISTS semantic_memory (
+    id          uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agent_id    uuid NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    content     text NOT NULL,
+    embedding   vector(1536),
+    metadata    jsonb NOT NULL DEFAULT '{}'::jsonb,
+    owner       text NOT NULL DEFAULT 'company'
+                CHECK (owner IN ('expert', 'company')),
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_semantic_memory_agent_owner ON semantic_memory(agent_id, owner);
+CREATE INDEX IF NOT EXISTS idx_semantic_memory_embedding
+    ON semantic_memory USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 -- Working Context — Short-term agent state.
 CREATE TABLE IF NOT EXISTS working_context (
@@ -115,27 +132,67 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_working_context_unique ON working_context(
 -- 5. KNOWLEDGE GRAPH
 -- ─────────────────────────────────────────────────────────────────────────────
 
+-- Knowledge Graph Nodes — Obsidian-style node graph with provenance.
 CREATE TABLE IF NOT EXISTS kg_nodes (
-    id          uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-    company_id  uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-    label       text NOT NULL,
-    properties  jsonb NOT NULL DEFAULT '{}'::jsonb,
-    embedding   vector(1536), -- Compatible with OpenAI/Claude standard vectors
-    created_at  timestamptz NOT NULL DEFAULT now(),
-    updated_at  timestamptz NOT NULL DEFAULT now()
+    id                      uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    company_id              uuid REFERENCES companies(id) ON DELETE CASCADE, -- null for 'expert' owned global nodes
+    agent_id                uuid REFERENCES agents(id) ON DELETE SET NULL,
+
+    -- Ownership boundary
+    owner                   text NOT NULL DEFAULT 'company'
+                            CHECK (owner IN ('expert', 'company')),
+
+    -- Classification
+    node_type               text NOT NULL DEFAULT 'fact'
+                            CHECK (node_type IN ('fact', 'insight', 'procedure', 'decision', 'episode', 'blink')),
+    scope                   text NOT NULL DEFAULT 'agent'
+                            CHECK (scope IN ('agent', 'team', 'org')),
+
+    -- Content
+    title                   text NOT NULL,
+    content                 text NOT NULL,
+    properties              jsonb NOT NULL DEFAULT '{}'::jsonb, -- Structured data for specific node types
+    token_count             int NOT NULL DEFAULT 0,
+
+    -- Provenance
+    emerged_from_task_id    uuid,
+    emerged_from_session    text,
+    emerged_at              timestamptz NOT NULL DEFAULT now(),
+    emerged_context         jsonb,
+
+    -- Continuation chain
+    continues_node_id       uuid REFERENCES kg_nodes(id) ON DELETE SET NULL,
+    is_continuation         boolean NOT NULL DEFAULT false,
+
+    -- Retrieval
+    embedding               vector(1536),
+    tags                    text[] DEFAULT '{}',
+    importance              float NOT NULL DEFAULT 0.5
+                            CHECK (importance >= 0 AND importance <= 1),
+    access_count            int NOT NULL DEFAULT 0,
+    last_accessed_at        timestamptz,
+
+    -- Lifecycle
+    valid_until             timestamptz,
+    archived                boolean NOT NULL DEFAULT false,
+    created_at              timestamptz NOT NULL DEFAULT now(),
+    updated_at              timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_kg_nodes_company ON kg_nodes(company_id);
--- Vector index (IVFFlat) for performance
+CREATE INDEX IF NOT EXISTS idx_kg_nodes_company_owner ON kg_nodes(company_id, owner) WHERE archived = false;
+CREATE INDEX IF NOT EXISTS idx_kg_nodes_agent_owner ON kg_nodes(agent_id, owner) WHERE archived = false;
 CREATE INDEX IF NOT EXISTS idx_kg_nodes_embedding ON kg_nodes USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 CREATE TABLE IF NOT EXISTS kg_edges (
-    id          uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-    source_id   uuid NOT NULL REFERENCES kg_nodes(id) ON DELETE CASCADE,
-    target_id   uuid NOT NULL REFERENCES kg_nodes(id) ON DELETE CASCADE,
-    relationship text NOT NULL,
-    properties  jsonb NOT NULL DEFAULT '{}'::jsonb,
-    created_at  timestamptz NOT NULL DEFAULT now()
+    id              uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    source_id       uuid NOT NULL REFERENCES kg_nodes(id) ON DELETE CASCADE,
+    target_id       uuid NOT NULL REFERENCES kg_nodes(id) ON DELETE CASCADE,
+    relationship    text NOT NULL
+                    CHECK (relationship IN ('caused', 'supports', 'contradicts', 'continues', 'references', 'derived_from')),
+    strength        float NOT NULL DEFAULT 0.5
+                    CHECK (strength >= 0 AND strength <= 1),
+    properties      jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at      timestamptz NOT NULL DEFAULT now()
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────

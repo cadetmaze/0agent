@@ -57,6 +57,7 @@ class SemanticMemory:
         self,
         agent_id: str,
         query: str,
+        owner: Optional[str] = None,
         limit: int = 10,
     ) -> list[dict]:
         """
@@ -66,19 +67,26 @@ class SemanticMemory:
         query_embedding = self._embed(query)
         embedding_str = "[" + ",".join(str(v) for v in query_embedding) + "]"
 
-        rows = await db.fetch_all(
-            """
+        sql = """
             SELECT id, content, metadata,
                    1 - (embedding <=> $1::vector) AS similarity
             FROM semantic_memory
             WHERE agent_id = $2
+        """
+        params = [embedding_str, agent_id]
+
+        if owner:
+            sql += " AND owner = $3"
+            params.append(owner)
+
+        limit_pos = len(params) + 1
+        sql += f"""
             ORDER BY embedding <=> $1::vector
-            LIMIT $3
-            """,
-            embedding_str,
-            agent_id,
-            limit,
-        )
+            LIMIT ${limit_pos}
+        """
+        params.append(limit)
+
+        rows = await db.fetch_all(sql, *params)
 
         results = []
         for row in rows:
@@ -102,6 +110,7 @@ class SemanticMemory:
         agent_id: str,
         content: str,
         metadata: Optional[dict] = None,
+        owner: str = "company",
     ) -> str:
         """
         Write a semantic memory entry.
@@ -114,14 +123,15 @@ class SemanticMemory:
 
         await db.execute(
             """
-            INSERT INTO semantic_memory (id, agent_id, content, embedding, metadata)
-            VALUES ($1, $2, $3, $4::vector, $5::jsonb)
+            INSERT INTO semantic_memory (id, agent_id, content, embedding, metadata, owner)
+            VALUES ($1, $2, $3, $4::vector, $5::jsonb, $6)
             """,
             memory_id,
             agent_id,
             content,
             embedding_str,
             json.dumps(metadata or {}),
+            owner,
         )
 
         print(f"[SemanticMemory] Wrote memory {memory_id} for agent {agent_id}")

@@ -89,6 +89,7 @@ class TrainingSessionHandler:
                 "session_date": datetime.now(timezone.utc).isoformat(),
                 "training_version": version_hash,
             },
+            owner="expert",
         )
 
         return {

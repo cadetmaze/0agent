@@ -66,10 +66,11 @@ class EnvelopeBuilder:
                 "confidenceMap": cm.get("confidence_map", []),
             }
 
-        # Step 2: Retrieve relevant episodic memories
+        # Step 2: Retrieve relevant episodic memories (company scope only)
         relevant_memories = await semantic_memory.search(
             agent_id=agent_id,
             query=task_spec,
+            owner="company",
             limit=5,
         )
 
@@ -98,11 +99,12 @@ class EnvelopeBuilder:
     async def _build_org_context(self, company_id: str) -> dict[str, Any]:
         """Build org context from the knowledge graph."""
         try:
+            # Switch to unified kg_nodes store with owner filter
             rows = await db.fetch_all(
                 """
-                SELECT entity_type, entity_data
-                FROM org_knowledge_graph
-                WHERE company_id = $1
+                SELECT node_type AS entity_type, properties AS entity_data
+                FROM kg_nodes
+                WHERE company_id = $1 AND owner = 'company' AND archived = false
                 """,
                 company_id,
             )

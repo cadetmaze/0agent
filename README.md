@@ -143,7 +143,14 @@ What gets encoded:
 - **Hard constraints** — things they would never do regardless of instruction
 - **Contextual judgment** — how their approach shifts by situation type
 
-All of this is written into **Core Memory** — a locked store that the runtime can only read. It never changes unless the expert explicitly retrains.
+All of this is written into **Core Memory** — a locked store that the runtime can only read.
+
+### Multi-session Consolidation
+Unlike standard agents that just append new transcripts, the 0 Agent runs a **consolidation pass** on every new training session:
+- **Deepen**: Merges new insights into existing patterns to strengthen recognition.
+- **Resolve**: Identifies contradictions and updates patterns with separating conditions.
+- **New**: Explicitly flags genuinely new heuristics.
+- **Review**: Flags unresolved contradictions for expert clarification.
 
 ---
 
@@ -287,7 +294,7 @@ This is the loop closing.
 Five distinct memory tiers, each with different scope and function.
 
 ### Core Memory
-The expert's encoded identity. Read-only for the runtime. Written only by the training service. Never changes during task execution.
+The expert's encoded identity. Read-only for the runtime. Written only by the training service. Core Memory is loaded **whole** at the start of every task, ensuring judgment is always present without needing semantic search.
 
 ### Working Memory
 Task-scoped, ephemeral. Lives in Redis during execution; Postgres as the durable fallback.
@@ -296,13 +303,17 @@ Task-scoped, ephemeral. Lives in Redis during execution; Postgres as the durable
 Persistent log of past sessions. The agent gets better at its job over time by retrieving relevant episodes when it encounters familiar situations.
 
 ### Semantic Memory
-pgvector embeddings for meaning-based retrieval. Searchable by what something means, not exact wording.
+pgvector embeddings for meaning-based retrieval. Separated by a hard **ownership boundary**:
+- `owner: 'expert'`: Training transcripts and expert-only context.
+- `owner: 'company'`: Runtime session history and org context.
 
 ### Knowledge Graph Memory
-The main context layer. An Obsidian-style directed node graph where:
+The main context layer. A unified directed node graph with a mandatory ownership field:
+- **Expert Nodes**: Global heuristics and cross-company patterns.
+- **Company Nodes**: Scoped to a specific `company_id`.
 
-- Every node has full **provenance**: `emerged_from_task_id`, `emerged_at`, `emerged_context`
-- Nodes write their own continuation chain when content exceeds **30,000 tokens**
+Every node has full **provenance**: `emerged_from_task_id`, `emerged_at`, `emerged_context`.
+- Nodes write their own continuation chain when content exceeds **30,000 tokens**.
 - **Blink cycles** periodically compress working context — triggered by token threshold (24k), task count (every 5), elapsed time (30 min), or cognitive load indicators
 - Agents receive a compact `BlinkState` answering three questions: *what actually matters right now, what have we decided, what are we doing*
 

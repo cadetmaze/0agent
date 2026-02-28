@@ -8,11 +8,15 @@ from previous training sessions.
 
 from typing import Any
 
+from .consolidator import TrainingConsolidator
 from ..memory.core import CoreMemory
 
 
 class JudgmentEncoder:
     """Encode extracted judgment patterns into Core Memory."""
+
+    def __init__(self):
+        self.consolidator = TrainingConsolidator()
 
     async def encode(
         self,
@@ -40,24 +44,20 @@ class JudgmentEncoder:
         existing = await core_memory.load(agent_id)
 
         if existing is not None:
-            # Merge with existing judgment
-            merged_patterns = self._merge_patterns(
-                existing.get("judgment_json", {}).get("patterns", []),
-                extraction["patterns"],
+            # Consolidate with existing judgment profile
+            consolidated = self.consolidator.consolidate(
+                existing_judgment={
+                    "patterns": existing.get("judgment_json", {}).get("patterns", []),
+                    "hard_constraints": existing.get("hard_constraints", []),
+                    "escalation_triggers": existing.get("escalation_triggers", []),
+                    "confidence_map": existing.get("confidence_map", []),
+                },
+                new_extraction=extraction,
             )
-            merged_constraints = self._merge_constraints(
-                existing.get("hard_constraints", []),
-                extraction["constraints"],
-            )
-            merged_triggers = self._merge_triggers(
-                existing.get("escalation_triggers", []),
-                extraction["triggers"],
-            )
-            # Confidence map: prefer the latest training session
-            confidence_map = extraction.get(
-                "confidence_map",
-                existing.get("confidence_map", []),
-            )
+            merged_patterns = consolidated["patterns"]
+            merged_constraints = consolidated["hard_constraints"]
+            merged_triggers = consolidated["escalation_triggers"]
+            confidence_map = consolidated["confidence_map"]
         else:
             merged_patterns = extraction["patterns"]
             merged_constraints = extraction["constraints"]
@@ -89,35 +89,3 @@ class JudgmentEncoder:
 
         return version_hash
 
-    def _merge_patterns(
-        self, existing: list[dict], new: list[dict]
-    ) -> list[dict]:
-        """Merge new patterns with existing, avoiding duplicates by ID."""
-        existing_ids = {p.get("id") for p in existing}
-        merged = list(existing)
-        for pattern in new:
-            if pattern.get("id") not in existing_ids:
-                merged.append(pattern)
-        return merged
-
-    def _merge_constraints(
-        self, existing: list[dict], new: list[dict]
-    ) -> list[dict]:
-        """Merge new constraints with existing, avoiding duplicates by ID."""
-        existing_ids = {c.get("id") for c in existing}
-        merged = list(existing)
-        for constraint in new:
-            if constraint.get("id") not in existing_ids:
-                merged.append(constraint)
-        return merged
-
-    def _merge_triggers(
-        self, existing: list[dict], new: list[dict]
-    ) -> list[dict]:
-        """Merge new triggers with existing, avoiding duplicates by ID."""
-        existing_ids = {t.get("id") for t in existing}
-        merged = list(existing)
-        for trigger in new:
-            if trigger.get("id") not in existing_ids:
-                merged.append(trigger)
-        return merged

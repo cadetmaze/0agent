@@ -46,11 +46,13 @@ export class OrgGraph {
      * Get the full company context for building TaskEnvelopes.
      */
     async getCompanyContext(companyId: string): Promise<CompanyContext> {
-        // Fetch all entities for this company
+        // Fetch all entities for this company from unified kg_nodes store
         const { data, error } = await this.supabase
-            .from('org_knowledge_graph')
+            .from('kg_nodes')
             .select('*')
-            .eq('company_id', companyId);
+            .eq('company_id', companyId)
+            .eq('owner', 'company')
+            .eq('archived', false);
 
         if (error) {
             console.error(`[OrgGraph] Failed to fetch org context: ${error.message}`);
@@ -60,41 +62,41 @@ export class OrgGraph {
         const entities = (data ?? []) as Array<{
             id: string;
             company_id: string;
-            entity_type: string;
-            entity_data: Record<string, unknown>;
+            node_type: string;
+            properties: Record<string, unknown>;
             created_at: string;
             updated_at: string;
         }>;
 
         // Extract decisions
         const activeDecisions: Decision[] = entities
-            .filter((e) => e.entity_type === 'decision')
+            .filter((e) => e.node_type === 'decision')
             .map((e) => ({
                 id: e.id,
-                title: (e.entity_data['title'] as string) ?? 'Untitled',
-                description: (e.entity_data['description'] as string) ?? '',
-                status: (e.entity_data['status'] as Decision['status']) ?? 'proposed',
-                stakeholders: (e.entity_data['stakeholders'] as string[]) ?? [],
-                deadline: e.entity_data['deadline'] as string | undefined,
+                title: (e.properties['title'] as string) ?? 'Untitled',
+                description: (e.properties['description'] as string) ?? '',
+                status: (e.properties['status'] as Decision['status']) ?? 'proposed',
+                stakeholders: (e.properties['stakeholders'] as string[]) ?? [],
+                deadline: e.properties['deadline'] as string | undefined,
             }));
 
         // Extract people
         const keyPeople: Person[] = entities
-            .filter((e) => e.entity_type === 'person')
+            .filter((e) => e.node_type === 'person')
             .map((e) => ({
                 id: e.id,
-                name: (e.entity_data['name'] as string) ?? 'Unknown',
-                role: (e.entity_data['role'] as string) ?? '',
-                relevance: (e.entity_data['relevance'] as string) ?? '',
-                contactPreference: e.entity_data['contactPreference'] as string | undefined,
+                name: (e.properties['name'] as string) ?? 'Unknown',
+                role: (e.properties['role'] as string) ?? '',
+                relevance: (e.properties['relevance'] as string) ?? '',
+                contactPreference: e.properties['contactPreference'] as string | undefined,
             }));
 
         // Extract goal and constraints from project entities
-        const projects = entities.filter((e) => e.entity_type === 'project');
+        const projects = entities.filter((e) => e.node_type === 'project');
         const primaryProject = projects[0];
-        const goal = (primaryProject?.entity_data['goal'] as string) ?? '';
-        const constraints = (primaryProject?.entity_data['constraints'] as string[]) ?? [];
-        const budgetRemaining = (primaryProject?.entity_data['budgetRemaining'] as number) ?? 0;
+        const goal = (primaryProject?.properties['goal'] as string) ?? '';
+        const constraints = (primaryProject?.properties['constraints'] as string[]) ?? [];
+        const budgetRemaining = (primaryProject?.properties['budgetRemaining'] as number) ?? 0;
 
         return {
             goal,
@@ -114,11 +116,14 @@ export class OrgGraph {
         entityData: Record<string, unknown>
     ): Promise<string> {
         const { data, error } = await this.supabase
-            .from('org_knowledge_graph')
+            .from('kg_nodes')
             .insert({
                 company_id: companyId,
-                entity_type: entityType,
-                entity_data: entityData,
+                node_type: entityType,
+                properties: entityData,
+                owner: 'company',
+                title: (entityData['title'] as string) ?? (entityData['name'] as string) ?? `${entityType} Entity`,
+                content: (entityData['description'] as string) ?? '',
             })
             .select('id')
             .single();
@@ -138,9 +143,11 @@ export class OrgGraph {
         entityData: Record<string, unknown>
     ): Promise<void> {
         const { error } = await this.supabase
-            .from('org_knowledge_graph')
+            .from('kg_nodes')
             .update({
-                entity_data: entityData,
+                properties: entityData,
+                title: (entityData['title'] as string) ?? (entityData['name'] as string) ?? undefined,
+                content: (entityData['description'] as string) ?? undefined,
                 updated_at: new Date().toISOString(),
             })
             .eq('id', entityId);
@@ -158,10 +165,12 @@ export class OrgGraph {
         entityType: EntityType
     ): Promise<OrgEntity[]> {
         const { data, error } = await this.supabase
-            .from('org_knowledge_graph')
+            .from('kg_nodes')
             .select('*')
             .eq('company_id', companyId)
-            .eq('entity_type', entityType);
+            .eq('node_type', entityType)
+            .eq('owner', 'company')
+            .eq('archived', false);
 
         if (error) {
             throw new Error(`[OrgGraph] Failed to fetch entities: ${error.message}`);
@@ -170,8 +179,8 @@ export class OrgGraph {
         return (data ?? []).map((row) => ({
             id: row.id as string,
             companyId: row.company_id as string,
-            entityType: row.entity_type as EntityType,
-            entityData: row.entity_data as Record<string, unknown>,
+            entityType: row.node_type as EntityType,
+            entityData: row.properties as Record<string, unknown>,
             createdAt: row.created_at as string,
             updatedAt: row.updated_at as string,
         }));
