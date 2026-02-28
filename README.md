@@ -48,6 +48,16 @@ Once an expert's judgment is encoded, every task the agent handles — regardles
 4. [Chapter 3 — Thinking](#chapter-3--thinking)
 5. [Chapter 4 — The LLM Router](#chapter-4--the-llm-router)
 6. [Chapter 5 — Execution](#chapter-5--execution)
+7. [Chapter 6 — Coordination](#chapter-6--coordination)
+8. [Chapter 7 — Measurement](#chapter-7--measurement)
+9. [Memory Architecture](#memory-architecture)
+10. [Runtime Reinforcement Layer](#runtime-reinforcement-layer)
+11. [Security Model](#security-model)
+12. [Global CLI — 0agent](#global-cli-0agent)
+13. [Quick Start](#quick-start)
+14. [Skill System](#skill-system)
+15. [Repository Structure](#repository-structure)
+16. [The Loop That Closes](#the-loop-that-closes)
 
 ---
 
@@ -83,21 +93,7 @@ Run `./start.sh` again and provide:
 - **Supabase URL**: `https://your-project.supabase.co`
 - **Service Role Key**: Your secret key from `Settings -> API`.
 
----
 
-## 🏗️ Architecture Overview
-7. [Chapter 6 — Coordination](#chapter-6--coordination)
-8. [Chapter 7 — Measurement](#chapter-7--measurement)
-9. [Memory Architecture](#memory-architecture)
-10. [Runtime Reinforcement Layer](#runtime-reinforcement-layer)
-11. [Security Model](#security-model)
-12. [Global CLI — 0agent](#global-cli-0agent)
-13. [Quick Start](#quick-start)
-14. [Skill System](#skill-system)
-15. [Repository Structure](#repository-structure)
-16. [The Loop That Closes](#the-loop-that-closes)
-
----
 
 ## Architecture Overview
 
