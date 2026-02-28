@@ -1,0 +1,152 @@
+# ============================================================
+# Only Reason 0 Agent — Docker Compose
+#
+# Runs everything locally with: docker-compose up
+# ============================================================
+
+services:
+  # -----------------------------------------------------------
+  # Postgres + pgvector
+  # -----------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-onlyreason}
+      POSTGRES_USER: ${POSTGRES_USER:-onlyreason}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_postgres_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./supabase/migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
+      - ./supabase/migrations/002_usage_gaps.sql:/docker-entrypoint-initdb.d/002_usage_gaps.sql
+      - ./supabase/migrations/003_knowledge_graph.sql:/docker-entrypoint-initdb.d/003_knowledge_graph.sql
+      - ./supabase/migrations/004_reinforcement.sql:/docker-entrypoint-initdb.d/004_reinforcement.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-onlyreason}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # -----------------------------------------------------------
+  # Redis (BullMQ task queue)
+  # -----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # -----------------------------------------------------------
+  # TypeScript Runtime
+  # -----------------------------------------------------------
+  runtime:
+    build:
+      context: ../packages/runtime
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-onlyreason}:${POSTGRES_PASSWORD:-changeme_postgres_password}@postgres:5432/${POSTGRES_DB:-onlyreason}
+      SUPABASE_URL: ${SUPABASE_URL:-http://localhost:8000}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-changeme_supabase_service_key}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-changeme_64_hex_chars_aes256_key}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-changeme_service_token}
+      JUDGMENT_SERVICE_URL: http://judgment:8001
+      AGENT_ID: ${AGENT_ID:-00000000-0000-0000-0000-000000000001}
+      COMPANY_ID: ${COMPANY_ID:-00000000-0000-0000-0000-000000000001}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HEARTBEAT_INTERVAL_SECONDS: ${HEARTBEAT_INTERVAL_SECONDS:-30}
+      FEATURE_SKILLS: ${FEATURE_SKILLS:-true}
+      FEATURE_TELEGRAM: ${FEATURE_TELEGRAM:-false}
+      FEATURE_BROWSER: ${FEATURE_BROWSER:-true}
+      FEATURE_SCHEDULER: ${FEATURE_SCHEDULER:-true}
+      FEATURE_CONTEXT_COMPRESSION: ${FEATURE_CONTEXT_COMPRESSION:-true}
+      FEATURE_PROMPT_CACHING: ${FEATURE_PROMPT_CACHING:-true}
+      SKILLS_ROOT: /app/skills
+    volumes:
+      - ../workspace:/app/workspace
+      - ../workspace/skills:/app/skills
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:3000/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # -----------------------------------------------------------
+  # Python Judgment Service
+  # -----------------------------------------------------------
+  judgment:
+    build:
+      context: ../packages/judgment
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-onlyreason}:${POSTGRES_PASSWORD:-changeme_postgres_password}@postgres:5432/${POSTGRES_DB:-onlyreason}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-changeme_service_token}
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8001/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # -----------------------------------------------------------
+  # Nginx Reverse Proxy
+  # -----------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    depends_on:
+      runtime:
+        condition: service_healthy
+      judgment:
+        condition: service_healthy
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+  # -----------------------------------------------------------
+  # Sandbox (Playwright — isolated browser automation)
+  # No network access by default; allowlist enforced by browser-adapter
+  # -----------------------------------------------------------
+  sandbox:
+    image: mcr.microsoft.com/playwright:v1.42.0-noble
+    restart: unless-stopped
+    privileged: false
+    network_mode: none
+    volumes:
+      - ./workspace:/app/workspace
+    command: [ "sleep", "infinity" ] # kept alive; browser-adapter execs into it
+
+volumes:
+  postgres_data:
+  redis_data:
